@@ -10,34 +10,48 @@ import os
 # Конфигурация
 # ============================
 TELEGRAM_TOKEN = "8141858682:AAG_k13Rd2WClI1SDL9W7-zC0vFuRUUkfUw"
-CHAT_ID        = "6983437462"       # тестирование в ЛС
-CHANNEL_ID     = "-1002047105840"   # после настройки — в канал
+CHAT_ID        = "6983437462"       # для тестирования в личные сообщения
+CHANNEL_ID     = "-1002047105840"   # для публикации в канал после проверки
 
-# Список из ~100 русскоязычных RSS-ленточек по ИИ и технологиям
+# Расширенный список русскоязычных тематических RSS-лент (~100 примеров).
+# Для полного списка нужно дополнить этот массив актуальными ссылками.
 RSS_FEEDS = [
     "https://habr.com/ru/rss/all/all/",
     "https://vc.ru/rss/all",
     "https://ria.ru/export/rss2/archive/index.xml",
     "https://lenta.ru/rss",
-    # ... добавьте другие современные тематические ленты:
     "https://tproger.ru/rss",
     "https://geekbrains.ru/posts/rss",
-    "https://function.python/rss",  # пример
-    # заполняйте до 100 URL
+    "https://cnews.ru/xml/cnews.rss",
+    "https://www.vedomosti.ru/rss/news.xml",
+    "https://www.computerra.ru/rss.xml",
+    "https://3dnews.ru/news/rss",
+    "https://www.ixbt.com/export/news.xml",
+    "https://www.securitylab.ru/_services/export/rss2/news/",
+    "https://vc.ru/rss/technology",
+    "https://dou.ua/feed/",
+    "https://proglib.io/rss",
+    "https://habr.com/ru/rss/hub/machine-learning/",
+    "https://habr.com/ru/rss/hub/artificial_intelligence/",
+    "https://habr.com/ru/rss/hub/data-science/",
+    # Добавьте сюда актуальные русскоязычные сайты по ИИ, технологиям, ML, GPT и др.
+    # ...
 ]
 
+# Ключевые слова для фильтрации релевантных новостей по ИИ и технологиям
 KEYWORDS = [
     "ИИ", "искусственный интеллект", "нейросеть",
     "машинное обучение", "deep learning", "AI",
-    "модель", "LLM", "GPT", "генерация", "тренд",
+    "модель", "llm", "gpt", "генерация", "тренд",
     "нейро", "промпт", "инференс", "компьютерное зрение",
-    "NLP", "Stable Diffusion", "Midjourney", "Claude"
+    "nlp", "stable diffusion", "midjourney", "claude",
+    "чат-бот", "чатбот", "qwen", "gemini", "перплекси"
 ]
 
 SEEN_FILE = "seen_links.json"
 
 # ============================
-# Загрузка и сохранение просмотренных ссылок
+# Загрузка и сохранение просмотренных ссылок, чтобы избежать дублей
 # ============================
 def load_seen():
     if os.path.exists(SEEN_FILE):
@@ -50,7 +64,7 @@ def save_seen(seen):
         json.dump(list(seen), f, ensure_ascii=False, indent=2)
 
 # ============================
-# RSS-парсер
+# RSS-парсер с фильтрацией и учётом уже опубликованных
 # ============================
 def parse_rss(url, seen):
     articles = []
@@ -69,11 +83,11 @@ def parse_rss(url, seen):
             if any(kw.lower() in text for kw in KEYWORDS):
                 articles.append({"title": title, "link": link})
     except Exception as e:
-        print(f"[ERROR] Парсинг {url}: {e}")
+        print(f"[ERROR] Ошибка парсинга {url}: {e}")
     return articles
 
 # ============================
-# Сбор новостей со всех лент
+# Сбор всех новых релевантных новостей
 # ============================
 def collect_news():
     seen = load_seen()
@@ -84,7 +98,7 @@ def collect_news():
     return fresh, seen
 
 # ============================
-# Форматирование поста
+# Форматирование поста согласно шаблону
 # ============================
 def format_post(article):
     title = article["title"]
@@ -102,12 +116,13 @@ def format_post(article):
     )
 
 # ============================
-# Отправка сообщения
+# Отправка сообщения в Telegram через HTTP API с HTML-разметкой
 # ============================
 def send(text, to_channel=False):
+    chat_id = CHANNEL_ID if to_channel else CHAT_ID
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
-        "chat_id": CHANNEL_ID if to_channel else CHAT_ID,
+        "chat_id": chat_id,
         "text": text,
         "parse_mode": "HTML",
         "disable_web_page_preview": False
@@ -119,22 +134,22 @@ def send(text, to_channel=False):
         print(f"[ERROR] Telegram API {resp.status_code}: {resp.text}")
 
 # ============================
-# Основная логика
+# Основная логика работы бота
 # ============================
 def main():
-    fresh, seen = collect_news()
-    if not fresh:
+    fresh_news, seen = collect_news()
+    if not fresh_news:
         print("[WARNING] Нет новых релевантных новостей")
         return
-    article = random.choice(fresh)
+    article = random.choice(fresh_news)
     print(f"[INFO] Выбрана новость: {article['title'][:40]}")
-    # помечаем как увиденную
+    # Добавляем в список просмотренных, чтобы не дублировать
     seen.add(article["link"])
     save_seen(seen)
     post = format_post(article)
     print("[INFO] Отправка тестового сообщения в ЛС...")
     send(post, to_channel=False)
-    # для публикации в канал включите:
+    # После тестирования можно переключить на публикацию в канал:
     # send(post, to_channel=True)
 
 if __name__ == "__main__":
