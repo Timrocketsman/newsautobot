@@ -5,131 +5,147 @@ import random
 import html
 import json
 import os
+import schedule
 import time
-from datetime import datetime, timedelta
 
 # ============================
 # Конфигурация
 # ============================
 TELEGRAM_TOKEN = "8141858682:AAG_k13Rd2WClI1SDL9W7-zC0vFuRUUkfUw"
-CHANNEL_ID     = "-1002047105840"   # канал для публикации
 
+# Для тестирования — отправка в ЛС
+CHAT_ID        = "6983437462"       
+# Для публикации в канал после тестов
+CHANNEL_ID     = "-1002047105840"   
+
+# RSS-ленты
 RSS_FEEDS = [
     "https://habr.com/ru/rss/all/all/",
     "https://vc.ru/rss/all",
     "https://ria.ru/export/rss2/archive/index.xml",
     "https://lenta.ru/rss",
-    # … добавьте свои ленты
+    "https://tproger.ru/rss",
+    "https://geekbrains.ru/posts/rss",
+    "https://cnews.ru/xml/cnews.rss",
+    "https://www.ixbt.com/export/news.xml",
+    "https://proglib.io/rss",
+    "https://3dnews.ru/news/rss",
+    "https://habr.com/ru/rss/hub/machine-learning/",
+    "https://habr.com/ru/rss/hub/artificial_intelligence/",
+    "https://habr.com/ru/rss/hub/data-science/"
 ]
 
+# Ключевые слова (фильтрация)
 KEYWORDS = [
     "ИИ", "искусственный интеллект", "нейросеть",
-    "машинное обучение", "ai", "deep learning",
-    "gpt", "генерация", "тренд"
+    "машинное обучение", "deep learning", "ai",
+    "модель", "llm", "gpt", "генерация", "тренд",
+    "нейро", "промпт", "инференс", "компьютерное зрение",
+    "nlp", "stable diffusion", "midjourney", "claude",
+    "чат-бот", "чатбот", "qwen", "gemini", "перплекс"
 ]
 
+# Файл для хранения уже отправленных новостей
 SEEN_FILE = "seen_links.json"
 
 # ============================
-# Загрузка/сохранение просмотренных ссылок
+# Функции
 # ============================
 def load_seen():
     if os.path.exists(SEEN_FILE):
-        return set(json.load(open(SEEN_FILE, encoding="utf-8")))
+        with open(SEEN_FILE, "r", encoding="utf-8") as f:
+            return set(json.load(f))
     return set()
 
 def save_seen(seen):
-    json.dump(list(seen), open(SEEN_FILE, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    with open(SEEN_FILE, "w", encoding="utf-8") as f:
+        json.dump(list(seen), f, ensure_ascii=False, indent=2)
 
-# ============================
-# Парсер RSS + фильтрация
-# ============================
 def parse_rss(url, seen):
-    out = []
+    articles = []
     try:
-        r = requests.get(url, headers={"User-Agent":"Mozilla/5.0"}, timeout=10)
-        r.raise_for_status()
-        root = ET.fromstring(r.content)
+        resp = requests.get(url, headers={"User-Agent":"Mozilla/5.0"}, timeout=10)
+        resp.raise_for_status()
+        root = ET.fromstring(resp.content)
         for item in root.findall(".//item")[:10]:
-            link  = item.findtext("link","").strip()
+            link = item.findtext("link", "").strip()
             if not link or link in seen:
                 continue
-            title = item.findtext("title","Без заголовка").strip()
-            desc  = re.sub(r"<[^>]+>","", item.findtext("description","")).strip()
+            title = item.findtext("title", "").strip()
+            desc  = re.sub(r"<[^>]+>", "", item.findtext("description", "")).strip()
             text  = (title + " " + desc).lower()
             if any(kw.lower() in text for kw in KEYWORDS):
-                out.append({"title": title, "link": link})
+                articles.append({"title": title, "link": link})
     except Exception as e:
-        print(f"[ERROR] {url}: {e}")
-    return out
+        print(f"[ERROR] RSS {url}: {e}")
+    return articles
 
-# ============================
-# Сбор новых новостей
-# ============================
 def collect_news():
     seen = load_seen()
     fresh = []
-    for rss in RSS_FEEDS:
-        fresh += parse_rss(rss, seen)
+    for feed in RSS_FEEDS:
+        print(f"[INFO] Чтение: {feed}")
+        fresh += parse_rss(feed, seen)
     return fresh, seen
 
-# ============================
-# Форматирование текста
-# ============================
-def format_post(article):
+def format_message(article):
     title = article["title"]
-    if len(title)>80:
-        title = title[:77].rstrip()+"..."
+    if len(title) > 80:
+        title = title[:77] + "..."
     link = article["link"]
-    return (
-        f"{html.escape(link)}\n\n"
-        f"🔍 {html.escape(title)}\n\n"
-        f"💡 P.S. Следите за обновлениями! 🚀\n\n"
-        f"<a href=\"https://t.me/BrainAid_bot\">Бот</a>⚫️"
-        f"<a href=\"https://t.me/m/h5Kv1jd9MWMy\">PerplexityPro</a>⚫️"
-        f"<a href=\"https://brainaid.ru/\">Сайт</a>"
+    msg = f"{html.escape(link)}\n\n"
+    msg += f"🔍 {html.escape(title)}\n\n"
+    msg += "💡 P.S. Следите за обновлениями! 🚀\n\n"
+    msg += (
+        '<a href="https://t.me/BrainAid_bot">Бот</a>⚫️'
+        '<a href="https://t.me/m/h5Kv1jd9MWMy">PerplexityPro</a>⚫️'
+        '<a href="https://brainaid.ru/">Сайт</a>'
     )
+    return msg
 
-# ============================
-# Отправка с отложенной публикацией
-# ============================
-def schedule_post(text, post_time: datetime):
-    """
-    Отправить сообщение в канал не сейчас, а в указанный момент post_time.
-    Telegram Bot API (v6.7+) поддерживает параметр schedule_date.
-    """
-    ts = int(post_time.timestamp())
+def send_message(text, to_channel=False):
+    chat_id = CHANNEL_ID if to_channel else CHAT_ID
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
-        "chat_id": CHANNEL_ID,
+        "chat_id": chat_id,
         "text": text,
         "parse_mode": "HTML",
-        "disable_web_page_preview": False,
-        "schedule_date": ts
+        "disable_web_page_preview": False
     }
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    resp = requests.post(url, data=payload, timeout=10)
-    if resp.status_code == 200:
-        print(f"[SUCCESS] Запланировано на {post_time}")
+    r = requests.post(url, data=payload, timeout=10)
+    if r.status_code == 200:
+        print("[SUCCESS] Отправлено")
     else:
-        print(f"[ERROR] Telegram {resp.status_code}: {resp.text}")
+        print(f"[ERROR] {r.status_code}: {r.text}")
 
 # ============================
-# Основная логика
+# Основная задача автопостинга
 # ============================
-def main():
-    news, seen = collect_news()
-    if not news:
+def job():
+    fresh, seen = collect_news()
+    if not fresh:
         print("[WARNING] Нет новых новостей")
         return
-
-    article = random.choice(news)
+    article = random.choice(fresh)
     seen.add(article["link"])
     save_seen(seen)
+    msg = format_message(article)
+    send_message(msg, to_channel=False)  # сейчас только в ЛС
+    # Для канала: send_message(msg, to_channel=True)
 
-    post_text = format_post(article)
-    # Запланировать публикацию через 1 час от текущего времени:
-    publish_time = datetime.utcnow() + timedelta(hours=1)
-    schedule_post(post_text, publish_time)
+# ============================
+# Планировщик (каждый час)
+# ============================
+def main():
+    print("[INFO] Режим автопостинга запущен (каждый час)")
+    schedule.every(1).hours.do(job)
+    
+    # Выполним сразу при старте
+    job()
+    
+    while True:
+        schedule.run_pending()
+        time.sleep(30)
 
 if __name__ == "__main__":
     main()
