@@ -1,75 +1,131 @@
 import requests
 from telegram import Bot
+import feedparser
+from datetime import datetime, timedelta
+import time
+import random
 
 # --------------------------
 # Конфигурация
 # --------------------------
-HF_TOKEN = "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"
-HF_MODEL = "microsoft/DialoGPT-medium"  # ОТКРЫТАЯ модель
-HF_API_URL = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
-
 TELEGRAM_TOKEN = "8141858682:AAG_k13Rd2WClI1SDL9W7-zC0vFuRUUkfUw"
 CHANNEL_ID = "-1002047105840"
 
-IMAGE_API_URL = "https://image.pollinations.ai/prompt/"
+# RSS источники новостей
+RSS_FEEDS = [
+    "https://rss.cnn.com/rss/edition.rss",
+    "https://feeds.bbci.co.uk/news/rss.xml", 
+    "https://www.reuters.com/rssFeed/technologyNews",
+    "https://techcrunch.com/feed/",
+    "https://habr.com/ru/rss/hub/artificial_intelligence/",
+    "https://vc.ru/rss/all",
+    "https://www.theverge.com/rss/index.xml"
+]
 
 # --------------------------
-# Генерация текста
+# Парсинг новостей из RSS
 # --------------------------
-def generate_text(news_text):
-    headers = {
-        "Authorization": f"Bearer {HF_TOKEN}",
-        "Content-Type": "application/json"
-    }
+def parse_news():
+    all_articles = []
     
-    prompt = f"Напиши краткую новость по шаблону:\n🔍 Заголовок\n\n1️⃣ Что случилось?\n2️⃣ Как это работает?\n3️⃣ Чем лучше аналогов?\n\nДанные: {news_text}"
+    for feed_url in RSS_FEEDS:
+        try:
+            print(f"[INFO] Парсинг RSS: {feed_url}")
+            feed = feedparser.parse(feed_url)
+            
+            for entry in feed.entries[:3]:  # Берём только 3 свежие статьи из каждого фида
+                article = {
+                    'title': entry.get('title', 'Без заголовка'),
+                    'summary': entry.get('summary', entry.get('description', 'Без описания')),
+                    'link': entry.get('link', ''),
+                    'published': entry.get('published', ''),
+                    'source': feed.feed.get('title', 'Неизвестный источник')
+                }
+                all_articles.append(article)
+                
+        except Exception as e:
+            print(f"[ERROR] Ошибка парсинга {feed_url}: {e}")
+            continue
     
-    payload = {
-        "inputs": prompt,
-        "parameters": {"max_new_tokens": 300, "temperature": 0.7}
-    }
-    
-    r = requests.post(HF_API_URL, headers=headers, json=payload)
-    r.raise_for_status()
-    data = r.json()
-    
-    if isinstance(data, list) and len(data) > 0:
-        return data[0].get("generated_text", str(data))
-    return str(data)
+    return all_articles
 
 # --------------------------
-# Генерация картинки
+# Форматирование новости по шаблону
 # --------------------------
-def generate_image(prompt):
-    return IMAGE_API_URL + requests.utils.quote(prompt)
+def format_news(article):
+    title = article['title'][:80] + "..." if len(article['title']) > 80 else article['title']
+    
+    formatted_post = f"""🔍 {title}
+
+1️⃣ Что случилось?
+{article['summary'][:200]}...
+
+2️⃣ Как это работает?
+📰 Новая информация из сферы технологий и ИИ
+
+3️⃣ Чем важно?
+✅ Актуальные тенденции рынка
+✅ Новые технологические решения  
+✅ Влияние на индустрию
+
+4️⃣ Подробности:
+🔗 [Читать полностью]({article['link']})
+
+5️⃣ Источник:
+📌 {article['source']}
+
+💡 P.S. Следите за трендами вместе с нами! 🚀
+
+#Новости #ИИ #Технологии
+"""
+    return formatted_post
 
 # --------------------------
 # Публикация в Telegram
 # --------------------------
-def post_to_telegram(text, image_url=None):
-    bot = Bot(token=TELEGRAM_TOKEN)
-    if image_url:
-        bot.send_photo(chat_id=CHANNEL_ID, photo=image_url, caption=text[:1024])
-    else:
-        bot.send_message(chat_id=CHANNEL_ID, text=text)
+def post_to_telegram(text):
+    try:
+        bot = Bot(token=TELEGRAM_TOKEN)
+        bot.send_message(chat_id=CHANNEL_ID, text=text, parse_mode="Markdown", disable_web_page_preview=False)
+        print("[SUCCESS] Сообщение отправлено в канал")
+        return True
+    except Exception as e:
+        print(f"[ERROR] Ошибка отправки в Telegram: {e}")
+        return False
 
 # --------------------------
 # Основная логика
 # --------------------------
+def main():
+    print("[INFO] Запуск новостного бота...")
+    
+    # Парсинг новостей
+    print("[INFO] Получение новостей из RSS...")
+    articles = parse_news()
+    
+    if not articles:
+        print("[WARNING] Новости не найдены!")
+        return
+    
+    # Выбираем случайную свежую новость
+    selected_article = random.choice(articles[:10])  # Из первых 10 самых свежих
+    
+    print(f"[INFO] Выбрана новость: {selected_article['title'][:50]}...")
+    
+    # Форматируем пост
+    formatted_post = format_news(selected_article)
+    
+    # Отправляем в канал
+    print("[INFO] Отправка в Telegram...")
+    success = post_to_telegram(formatted_post)
+    
+    if success:
+        print("[DONE] Новость успешно опубликована!")
+    else:
+        print("[ERROR] Не удалось опубликовать новость")
+
+# --------------------------
+# Запуск
+# --------------------------
 if __name__ == "__main__":
-    raw_news = """
-Claude теперь умеет искать ваши старые диалоги.
-Anthropic добавила функцию поиска по истории чатов.
-Пока только для платных пользователей.
-"""
-
-    print("[INFO] Генерирую текст...")
-    final_text = generate_text(raw_news)
-
-    print("[INFO] Генерирую изображение...")
-    image_url = generate_image("новость про нейросети, чат-боты, AI, минимализм")
-
-    print("[INFO] Отправляю в Telegram...")
-    post_to_telegram(final_text, image_url)
-
-    print("[DONE] Готово!")
+    main()
