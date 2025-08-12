@@ -1,20 +1,23 @@
 import requests
 from telegram import Bot
 
-# ====== Конфигурация ======
+# --------------------------
+# Конфигурация
+# --------------------------
+HF_TOKEN = "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"  # твой токен Hugging Face
+HF_MODEL = "mistralai/Mistral-7B-Instruct-v0.1"
+HF_API_URL = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
+
 TELEGRAM_TOKEN = "8141858682:AAG_k13Rd2WClI1SDL9W7-zC0vFuRUUkfUw"
 CHANNEL_ID = "-1002047105840"
 
-# Бесплатный HuggingFace endpoint (Mistral 7B)
-HF_TEXT_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.1"
-HF_TOKEN = ""  # Пусто — модель бесплатная, но можно вставить свой ключ HuggingFace для ускорения
-
-# Публичное API для генерации изображений
+# API для картинок
 IMAGE_API_URL = "https://image.pollinations.ai/prompt/"
 
-# ====== Промпт роли ======
-ROLE_PROMPT = """Ты — редактор новостей. Оформи полученную информацию по шаблону и сделай краткий, информативный и читаемый пост.
-Шаблон:
+# --------------------------
+# Шаблон поста
+# --------------------------
+ROLE_PROMPT = """Ты — редактор новостей. Оформи полученную информацию по шаблону и сделай читаемый пост на русском:
 🔍 {title}
 
 1️⃣ Что случилось?
@@ -35,31 +38,35 @@ ROLE_PROMPT = """Ты — редактор новостей. Оформи пол
 💡 P.S. {ps}
 """
 
-# ====== Генерация текста ======
+# --------------------------
+# Генерация текста
+# --------------------------
 def generate_text(news_text):
-    headers = {"Content-Type": "application/json"}
-    if HF_TOKEN:
-        headers["Authorization"] = f"Bearer {HF_TOKEN}"
-
+    headers = {
+        "Authorization": f"Bearer {HF_TOKEN}",
+        "Content-Type": "application/json"
+    }
     payload = {
-        "inputs": f"{ROLE_PROMPT}\n\nВот данные для новости:\n{news_text}",
+        "inputs": f"{ROLE_PROMPT}\n\nДанные для новости:\n{news_text}",
         "parameters": {"max_new_tokens": 500, "temperature": 0.7}
     }
-
-    r = requests.post(HF_TEXT_URL, headers=headers, json=payload)
+    r = requests.post(HF_API_URL, headers=headers, json=payload)
     r.raise_for_status()
     data = r.json()
-
-    if isinstance(data, list):
+    # HuggingFace может вернуть список или dict
+    if isinstance(data, list) and "generated_text" in data[0]:
         return data[0]["generated_text"]
-    return data
+    return str(data)
 
-# ====== Генерация изображения ======
+# --------------------------
+# Генерация картинки
+# --------------------------
 def generate_image(prompt):
-    # Используем Pollinations — публичный API, картинка по URL
     return IMAGE_API_URL + requests.utils.quote(prompt)
 
-# ====== Публикация в Telegram ======
+# --------------------------
+# Публикация в Telegram
+# --------------------------
 def post_to_telegram(text, image_url=None):
     bot = Bot(token=TELEGRAM_TOKEN)
     if image_url:
@@ -67,18 +74,21 @@ def post_to_telegram(text, image_url=None):
     else:
         bot.send_message(chat_id=CHANNEL_ID, text=text, parse_mode="HTML")
 
-# ====== Основной код ======
+# --------------------------
+# Основная логика
+# --------------------------
 if __name__ == "__main__":
     raw_news = """
 Claude теперь умеет искать ваши старые диалоги.
-Пока только для платных пользователей, но будет доступно всем.
+Anthropic добавила функцию поиска по истории чатов для Claude.
+Пока только для платных пользователей, но обещают скоро для всех.
 """
 
     print("[INFO] Генерирую текст...")
     final_text = generate_text(raw_news)
 
     print("[INFO] Генерирую изображение...")
-    image_url = generate_image("новость про нейросети, чат-боты, интерфейс поиска, минимализм")
+    image_url = generate_image("новость про нейросети, чат-боты, AI, минимализм, современный UI")
 
     print("[INFO] Отправляю в Telegram...")
     post_to_telegram(final_text, image_url)
