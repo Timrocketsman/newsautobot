@@ -68,7 +68,8 @@ def format_post(article):
         f"4️⃣ Подробности:\n"
         f"🔗 {html.escape(link)}\n\n"
         f"💡 P.S. Следите за обновлениями! 🚀\n\n"
-        f"<a href=\"https://t.me/BrainAid_bot\">Бот</a>⚫️PerplexityPro⚫️"
+        f"<a href=\"https://t.me/BrainAid_bot\">Бот</a>⚫️"
+        f"<a href=\"https://t.me/m/h5Kv1jd9MWMy\">PerplexityPro</a>⚫️"
         f"<a href=\"https://brainaid.ru/\">Сайт</a>"
     )
 
