@@ -8,8 +8,8 @@ import html
 # Конфигурация
 # ============================
 TELEGRAM_TOKEN = "8141858682:AAG_k13Rd2WClI1SDL9W7-zC0vFuRUUkfUw"
-CHAT_ID        = "6983437462"         # тестирование в ЛС
-CHANNEL_ID     = "-1002047105840"     # потом заменить
+CHAT_ID        = "6983437462"         # для тестирования в ЛС
+CHANNEL_ID     = "-1002047105840"     # в готовом виде в канал
 
 RSS_FEEDS = [
     "https://habr.com/ru/rss/all/all/",
@@ -21,11 +21,11 @@ RSS_FEEDS = [
 KEYWORDS = [
     "ИИ", "искусственный интеллект", "нейросеть",
     "машинное обучение", "deep learning", "AI",
-    "модель", "LLM", "GPT", "генерация"
+    "модель", "LLM", "GPT", "генерация", "тренд"
 ]
 
 # ============================
-# Парсер RSS-лент
+# Парсер RSS без сторонних библиотек
 # ============================
 def parse_rss(url):
     try:
@@ -33,15 +33,15 @@ def parse_rss(url):
         resp.raise_for_status()
         root = ET.fromstring(resp.content)
         items = root.findall(".//item")[:10]
-        lst = []
+        result = []
         for item in items:
-            title = item.findtext("title","Без заголовка")
-            desc  = re.sub(r"<[^>]+>","", item.findtext("description",""))
-            link  = item.findtext("link","")
+            title = item.findtext("title", default="Без заголовка")
+            desc  = re.sub(r"<[^>]+>", "", item.findtext("description", default=""))
+            link  = item.findtext("link", default="")
             text  = (title + " " + desc).lower()
             if any(kw.lower() in text for kw in KEYWORDS):
-                lst.append({"title":title,"link":link})
-        return lst
+                result.append({"title": title, "link": link})
+        return result
     except:
         return []
 
@@ -56,21 +56,24 @@ def collect_news():
     return all_articles
 
 # ============================
-# Формирование поста
+# Форматирование поста по шаблону
 # ============================
-def format_post(a):
-    title = a["title"]
+def format_post(article):
+    title = article["title"]
     if len(title) > 80:
         title = title[:77].rstrip() + "..."
+    link = article["link"]
     return (
         f"🔍 {html.escape(title)}\n\n"
-        f"4️⃣ Подробности:\n🔗 {html.escape(a['link'])}\n\n"
+        f"4️⃣ Подробности:\n"
+        f"🔗 {html.escape(link)}\n\n"
         f"💡 P.S. Следите за обновлениями! 🚀\n\n"
-        f"<a href=\"https://t.me/BrainAid_bot\">Бот</a>⚫️PerplexityPro⚫️<a href=\"https://brainaid.ru/\">Сайт</a>"
+        f"<a href=\"https://t.me/BrainAid_bot\">Бот</a>⚫️PerplexityPro⚫️"
+        f"<a href=\"https://brainaid.ru/\">Сайт</a>"
     )
 
 # ============================
-# Отправка через HTTP API
+# Отправка через HTTP API с HTML-разметкой
 # ============================
 def send(text, to_channel=False):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -82,12 +85,12 @@ def send(text, to_channel=False):
     }
     r = requests.post(url, data=payload, timeout=10)
     if r.status_code == 200:
-        print("[SUCCESS] Отправлено")
+        print("[SUCCESS] Сообщение отправлено")
     else:
-        print(f"[ERROR] {r.status_code}: {r.text}")
+        print(f"[ERROR] Telegram API {r.status_code}: {r.text}")
 
 # ============================
-# Главная логика
+# Основная логика
 # ============================
 def main():
     news = collect_news()
@@ -95,11 +98,11 @@ def main():
         print("[WARNING] Нет новостей по теме ИИ/технологий")
         return
     article = random.choice(news)
-    print(f"[INFO] Выбрана: {article['title'][:40]}")
+    print(f"[INFO] Выбрана новость: {article['title'][:40]}")
     post = format_post(article)
-    print("[INFO] Отправка в ЛС...")
+    print("[INFO] Отправка тестового сообщения в ЛС...")
     send(post, to_channel=False)
-    # После успешной проверки замените на:
+    # После проверки включите публикацию в канал:
     # send(post, to_channel=True)
 
 if __name__ == "__main__":
