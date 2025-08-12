@@ -18,7 +18,6 @@ RSS_FEEDS = [
     "https://lenta.ru/rss"
 ]
 
-# Ключевые слова для фильтрации
 KEYWORDS = [
     "ИИ", "искусственный интеллект", "нейросеть",
     "машинное обучение", "deep learning", "AI",
@@ -26,7 +25,7 @@ KEYWORDS = [
 ]
 
 # ============================
-# Парсер RSS
+# Парсер RSS-лент
 # ============================
 def parse_rss(url):
     try:
@@ -34,15 +33,15 @@ def parse_rss(url):
         resp.raise_for_status()
         root = ET.fromstring(resp.content)
         items = root.findall(".//item")[:10]
-        result = []
+        lst = []
         for item in items:
             title = item.findtext("title","Без заголовка")
             desc  = re.sub(r"<[^>]+>","", item.findtext("description",""))
             link  = item.findtext("link","")
-            text = (title + " " + desc).lower()
+            text  = (title + " " + desc).lower()
             if any(kw.lower() in text for kw in KEYWORDS):
-                result.append({"title":title,"link":link})
-        return result
+                lst.append({"title":title,"link":link})
+        return lst
     except:
         return []
 
@@ -61,13 +60,13 @@ def collect_news():
 # ============================
 def format_post(a):
     title = a["title"]
-    if len(title)>80:
-        title = title[:77].rstrip()+"..."
+    if len(title) > 80:
+        title = title[:77].rstrip() + "..."
     return (
-        f"🔍 {title}\n\n"
-        f"4️⃣ Подробности:\n🔗 {a['link']}\n\n"
+        f"🔍 {html.escape(title)}\n\n"
+        f"4️⃣ Подробности:\n🔗 {html.escape(a['link'])}\n\n"
         f"💡 P.S. Следите за обновлениями! 🚀\n\n"
-        f"Бот⚫️PerplexityPro⚫️Сайт"
+        f"<a href=\"https://t.me/BrainAid_bot\">Бот</a>⚫️PerplexityPro⚫️<a href=\"https://brainaid.ru/\">Сайт</a>"
     )
 
 # ============================
@@ -75,15 +74,14 @@ def format_post(a):
 # ============================
 def send(text, to_channel=False):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    safe = html.escape(text)
     payload = {
         "chat_id": CHANNEL_ID if to_channel else CHAT_ID,
-        "text": safe,
+        "text": text,
         "parse_mode": "HTML",
         "disable_web_page_preview": False
     }
     r = requests.post(url, data=payload, timeout=10)
-    if r.status_code==200:
+    if r.status_code == 200:
         print("[SUCCESS] Отправлено")
     else:
         print(f"[ERROR] {r.status_code}: {r.text}")
@@ -99,9 +97,10 @@ def main():
     article = random.choice(news)
     print(f"[INFO] Выбрана: {article['title'][:40]}")
     post = format_post(article)
-    print("[INFO] Отправка тестового в ЛС...")
+    print("[INFO] Отправка в ЛС...")
     send(post, to_channel=False)
-    # После проверки: send(post, to_channel=True)
+    # После успешной проверки замените на:
+    # send(post, to_channel=True)
 
-if __name__=="__main__":
+if __name__ == "__main__":
     main()
