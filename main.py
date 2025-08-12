@@ -1,8 +1,8 @@
 import requests
 from telegram import Bot
-import feedparser
-from datetime import datetime, timedelta
-import time
+import xml.etree.ElementTree as ET
+import re
+from datetime import datetime
 import random
 
 # --------------------------
@@ -13,71 +13,95 @@ CHANNEL_ID = "-1002047105840"
 
 # RSS источники новостей
 RSS_FEEDS = [
-    "https://rss.cnn.com/rss/edition.rss",
-    "https://feeds.bbci.co.uk/news/rss.xml", 
-    "https://www.reuters.com/rssFeed/technologyNews",
     "https://techcrunch.com/feed/",
+    "https://www.theverge.com/rss/index.xml",
     "https://habr.com/ru/rss/hub/artificial_intelligence/",
-    "https://vc.ru/rss/all",
-    "https://www.theverge.com/rss/index.xml"
+    "https://vc.ru/rss/all"
 ]
 
 # --------------------------
-# Парсинг новостей из RSS
+# Простой RSS парсер без feedparser
 # --------------------------
-def parse_news():
+def parse_rss_simple(url):
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        
+        # Парсим XML
+        root = ET.fromstring(response.content)
+        
+        articles = []
+        items = root.findall('.//item')[:5]  # Берём первые 5 статей
+        
+        for item in items:
+            title = item.find('title')
+            description = item.find('description')
+            link = item.find('link')
+            
+            article = {
+                'title': title.text if title is not None else 'Без заголовка',
+                'description': description.text if description is not None else 'Без описания',
+                'link': link.text if link is not None else ''
+            }
+            articles.append(article)
+            
+        return articles
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка парсинга {url}: {e}")
+        return []
+
+# --------------------------
+# Получение всех новостей
+# --------------------------
+def get_all_news():
     all_articles = []
     
     for feed_url in RSS_FEEDS:
-        try:
-            print(f"[INFO] Парсинг RSS: {feed_url}")
-            feed = feedparser.parse(feed_url)
-            
-            for entry in feed.entries[:3]:  # Берём только 3 свежие статьи из каждого фида
-                article = {
-                    'title': entry.get('title', 'Без заголовка'),
-                    'summary': entry.get('summary', entry.get('description', 'Без описания')),
-                    'link': entry.get('link', ''),
-                    'published': entry.get('published', ''),
-                    'source': feed.feed.get('title', 'Неизвестный источник')
-                }
-                all_articles.append(article)
-                
-        except Exception as e:
-            print(f"[ERROR] Ошибка парсинга {feed_url}: {e}")
-            continue
-    
+        print(f"[INFO] Парсинг: {feed_url}")
+        articles = parse_rss_simple(feed_url)
+        all_articles.extend(articles)
+        
     return all_articles
 
 # --------------------------
-# Форматирование новости по шаблону
+# Очистка HTML тегов из текста
+# --------------------------
+def clean_html(text):
+    clean = re.compile('<.*?>')
+    return re.sub(clean, '', text)[:300] + "..." if len(text) > 300 else text
+
+# --------------------------
+# Форматирование новости
 # --------------------------
 def format_news(article):
-    title = article['title'][:80] + "..." if len(article['title']) > 80 else article['title']
+    title = article['title'][:60] + "..." if len(article['title']) > 60 else article['title']
+    description = clean_html(article['description'])
     
     formatted_post = f"""🔍 {title}
 
 1️⃣ Что случилось?
-{article['summary'][:200]}...
+{description[:200]}...
 
 2️⃣ Как это работает?
-📰 Новая информация из сферы технологий и ИИ
+📰 Свежая информация из мира технологий и ИИ
 
 3️⃣ Чем важно?
-✅ Актуальные тенденции рынка
-✅ Новые технологические решения  
-✅ Влияние на индустрию
+✅ Актуальные технологические тренды
+✅ Новости индустрии
+✅ Полезная информация для IT-сообщества
 
 4️⃣ Подробности:
 🔗 [Читать полностью]({article['link']})
 
-5️⃣ Источник:
-📌 {article['source']}
-
-💡 P.S. Следите за трендами вместе с нами! 🚀
+💡 P.S. Оставайтесь в курсе последних новостей! 🚀
 
 #Новости #ИИ #Технологии
-"""
+
+Бот⚫️Сайт
+
+[Бот](https://t.me/BrainAid_bot) | [Сайт](https://brainaid.ru/)"""
+
     return formatted_post
 
 # --------------------------
@@ -86,11 +110,16 @@ def format_news(article):
 def post_to_telegram(text):
     try:
         bot = Bot(token=TELEGRAM_TOKEN)
-        bot.send_message(chat_id=CHANNEL_ID, text=text, parse_mode="Markdown", disable_web_page_preview=False)
-        print("[SUCCESS] Сообщение отправлено в канал")
+        bot.send_message(
+            chat_id=CHANNEL_ID, 
+            text=text, 
+            parse_mode="Markdown",
+            disable_web_page_preview=False
+        )
+        print("[SUCCESS] Сообщение отправлено!")
         return True
     except Exception as e:
-        print(f"[ERROR] Ошибка отправки в Telegram: {e}")
+        print(f"[ERROR] Ошибка отправки: {e}")
         return False
 
 # --------------------------
@@ -99,30 +128,26 @@ def post_to_telegram(text):
 def main():
     print("[INFO] Запуск новостного бота...")
     
-    # Парсинг новостей
-    print("[INFO] Получение новостей из RSS...")
-    articles = parse_news()
+    # Получаем новости
+    print("[INFO] Сбор новостей...")
+    articles = get_all_news()
     
     if not articles:
         print("[WARNING] Новости не найдены!")
         return
+        
+    # Выбираем случайную новость
+    selected_article = random.choice(articles)
+    print(f"[INFO] Выбрана: {selected_article['title'][:40]}...")
     
-    # Выбираем случайную свежую новость
-    selected_article = random.choice(articles[:10])  # Из первых 10 самых свежих
-    
-    print(f"[INFO] Выбрана новость: {selected_article['title'][:50]}...")
-    
-    # Форматируем пост
+    # Форматируем и отправляем
     formatted_post = format_news(selected_article)
     
-    # Отправляем в канал
-    print("[INFO] Отправка в Telegram...")
-    success = post_to_telegram(formatted_post)
-    
-    if success:
-        print("[DONE] Новость успешно опубликована!")
+    print("[INFO] Отправка в канал...")
+    if post_to_telegram(formatted_post):
+        print("[DONE] Новость опубликована!")
     else:
-        print("[ERROR] Не удалось опубликовать новость")
+        print("[ERROR] Ошибка публикации!")
 
 # --------------------------
 # Запуск
