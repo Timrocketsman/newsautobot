@@ -5,84 +5,63 @@ import random
 import html
 import json
 import os
+import time
+from datetime import datetime, timedelta
 
 # ============================
 # Конфигурация
 # ============================
 TELEGRAM_TOKEN = "8141858682:AAG_k13Rd2WClI1SDL9W7-zC0vFuRUUkfUw"
-CHAT_ID        = "6983437462"       # для тестирования в личные сообщения
-CHANNEL_ID     = "-1002047105840"   # для публикации в канал после проверки
+CHANNEL_ID     = "-1002047105840"   # канал для публикации
 
-# Расширенный список русскоязычных тематических RSS-лент (~100 примеров).
 RSS_FEEDS = [
     "https://habr.com/ru/rss/all/all/",
     "https://vc.ru/rss/all",
     "https://ria.ru/export/rss2/archive/index.xml",
     "https://lenta.ru/rss",
-    "https://tproger.ru/rss",
-    "https://geekbrains.ru/posts/rss",
-    "https://cnews.ru/xml/cnews.rss",
-    "https://www.vedomosti.ru/rss/news.xml",
-    "https://www.computerra.ru/rss.xml",
-    "https://3dnews.ru/news/rss",
-    "https://www.ixbt.com/export/news.xml",
-    "https://www.securitylab.ru/_services/export/rss2/news/",
-    "https://vc.ru/rss/technology",
-    "https://dou.ua/feed/",
-    "https://proglib.io/rss",
-    "https://habr.com/ru/rss/hub/machine-learning/",
-    "https://habr.com/ru/rss/hub/artificial_intelligence/",
-    "https://habr.com/ru/rss/hub/data-science/",
-    # ... добавьте остальные ленты
+    # … добавьте свои ленты
 ]
 
-# Ключевые слова для фильтрации
 KEYWORDS = [
     "ИИ", "искусственный интеллект", "нейросеть",
     "машинное обучение", "ai", "deep learning",
-    "модель", "llm", "gpt", "генерация", "тренд",
-    "нейро", "промпт", "инференс", "компьютерное зрение",
-    "nlp", "stable diffusion", "midjourney", "claude",
-    "чат-бот", "чатбот", "qwen", "gemini", "перплекс"
+    "gpt", "генерация", "тренд"
 ]
 
 SEEN_FILE = "seen_links.json"
 
 # ============================
-# Загрузка и сохранение просмотренных ссылок
+# Загрузка/сохранение просмотренных ссылок
 # ============================
 def load_seen():
     if os.path.exists(SEEN_FILE):
-        with open(SEEN_FILE, "r", encoding="utf-8") as f:
-            return set(json.load(f))
+        return set(json.load(open(SEEN_FILE, encoding="utf-8")))
     return set()
 
 def save_seen(seen):
-    with open(SEEN_FILE, "w", encoding="utf-8") as f:
-        json.dump(list(seen), f, ensure_ascii=False, indent=2)
+    json.dump(list(seen), open(SEEN_FILE, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 
 # ============================
-# Парсер RSS с фильтрацией и учетом дублей
+# Парсер RSS + фильтрация
 # ============================
 def parse_rss(url, seen):
-    articles = []
+    out = []
     try:
-        resp = requests.get(url, headers={"User-Agent":"Mozilla/5.0"}, timeout=10)
-        resp.raise_for_status()
-        root = ET.fromstring(resp.content)
-        items = root.findall(".//item")[:10]
-        for item in items:
-            link = item.findtext("link", default="").strip()
+        r = requests.get(url, headers={"User-Agent":"Mozilla/5.0"}, timeout=10)
+        r.raise_for_status()
+        root = ET.fromstring(r.content)
+        for item in root.findall(".//item")[:10]:
+            link  = item.findtext("link","").strip()
             if not link or link in seen:
                 continue
-            title = item.findtext("title", default="Без заголовка").strip()
-            desc  = re.sub(r"<[^>]+>", "", item.findtext("description", default="")).strip()
+            title = item.findtext("title","Без заголовка").strip()
+            desc  = re.sub(r"<[^>]+>","", item.findtext("description","")).strip()
             text  = (title + " " + desc).lower()
             if any(kw.lower() in text for kw in KEYWORDS):
-                articles.append({"title": title, "link": link})
+                out.append({"title": title, "link": link})
     except Exception as e:
-        print(f"[ERROR] Ошибка парсинга {url}: {e}")
-    return articles
+        print(f"[ERROR] {url}: {e}")
+    return out
 
 # ============================
 # Сбор новых новостей
@@ -90,66 +69,67 @@ def parse_rss(url, seen):
 def collect_news():
     seen = load_seen()
     fresh = []
-    for feed in RSS_FEEDS:
-        print(f"[INFO] Парсинг {feed}")
-        fresh += parse_rss(feed, seen)
+    for rss in RSS_FEEDS:
+        fresh += parse_rss(rss, seen)
     return fresh, seen
 
 # ============================
-# Формирование текста: ссылка сверху, текст снизу
+# Форматирование текста
 # ============================
-def format_message(article):
+def format_post(article):
     title = article["title"]
-    if len(title) > 80:
-        title = title[:77].rstrip() + "..."
+    if len(title)>80:
+        title = title[:77].rstrip()+"..."
     link = article["link"]
-    # Сначала ссылка, чтобы превью показывалось вверху
-    msg = f"{html.escape(link)}\n\n"
-    msg += f"🔍 {html.escape(title)}\n\n"
-    msg += "💡 P.S. Следите за обновлениями! 🚀\n\n"
-    msg += (
-        '<a href="https://t.me/BrainAid_bot">Бот</a>⚫️'
-        '<a href="https://t.me/m/h5Kv1jd9MWMy">PerplexityPro</a>⚫️'
-        '<a href="https://brainaid.ru/">Сайт</a>'
+    return (
+        f"{html.escape(link)}\n\n"
+        f"🔍 {html.escape(title)}\n\n"
+        f"💡 P.S. Следите за обновлениями! 🚀\n\n"
+        f"<a href=\"https://t.me/BrainAid_bot\">Бот</a>⚫️"
+        f"<a href=\"https://t.me/m/h5Kv1jd9MWMy\">PerplexityPro</a>⚫️"
+        f"<a href=\"https://brainaid.ru/\">Сайт</a>"
     )
-    return msg
 
 # ============================
-# Отправка через Telegram HTTP API
+# Отправка с отложенной публикацией
 # ============================
-def send_message(text, to_channel=False):
-    chat_id = CHANNEL_ID if to_channel else CHAT_ID
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+def schedule_post(text, post_time: datetime):
+    """
+    Отправить сообщение в канал не сейчас, а в указанный момент post_time.
+    Telegram Bot API (v6.7+) поддерживает параметр schedule_date.
+    """
+    ts = int(post_time.timestamp())
     payload = {
-        "chat_id": chat_id,
+        "chat_id": CHANNEL_ID,
         "text": text,
         "parse_mode": "HTML",
-        "disable_web_page_preview": False
+        "disable_web_page_preview": False,
+        "schedule_date": ts
     }
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     resp = requests.post(url, data=payload, timeout=10)
     if resp.status_code == 200:
-        print("[SUCCESS] Сообщение отправлено")
+        print(f"[SUCCESS] Запланировано на {post_time}")
     else:
-        print(f"[ERROR] Telegram API {resp.status_code}: {resp.text}")
+        print(f"[ERROR] Telegram {resp.status_code}: {resp.text}")
 
 # ============================
 # Основная логика
 # ============================
 def main():
-    fresh, seen = collect_news()
-    if not fresh:
-        print("[WARNING] Нет новых релевантных новостей")
+    news, seen = collect_news()
+    if not news:
+        print("[WARNING] Нет новых новостей")
         return
-    article = random.choice(fresh)
+
+    article = random.choice(news)
     seen.add(article["link"])
     save_seen(seen)
 
-    print(f"[INFO] Выбрана новость: {article['title'][:40]}")
-    message = format_message(article)
-    print("[INFO] Отправка тестового сообщения в ЛС...")
-    send_message(message, to_channel=False)
-    # Для публикации в канал после проверки:
-    # send_message(message, to_channel=True)
+    post_text = format_post(article)
+    # Запланировать публикацию через 1 час от текущего времени:
+    publish_time = datetime.utcnow() + timedelta(hours=1)
+    schedule_post(post_text, publish_time)
 
 if __name__ == "__main__":
     main()
