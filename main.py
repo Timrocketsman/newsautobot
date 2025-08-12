@@ -4,16 +4,16 @@ import re
 import html
 import json
 import os
-from openai import OpenAI
 
 # ============================
 # Конфигурация
 # ============================
 TELEGRAM_TOKEN = "8141858682:AAG_k13Rd2WClI1SDL9W7-zC0vFuRUUkfUw"
-CHAT_ID = "6983437462"  # тест в ЛС
+CHAT_ID        = "6983437462"  # тестирование в ЛС
 
-OPENAI_KEY = "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"
-client = OpenAI(api_key=OPENAI_KEY)
+# OpenAI HTTP API ключ
+OPENAI_API_KEY = "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"
+OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 
 RSS_FEEDS = [
     "https://habr.com/ru/rss/all/all/",
@@ -41,7 +41,7 @@ KEYWORDS = [
 SEEN_FILE = "seen_links.json"
 
 # ============================
-# Работа с уже опубликованными ссылками
+# Загрузка/сохранение просмотренных ссылок
 # ============================
 def load_seen():
     if os.path.exists(SEEN_FILE):
@@ -54,64 +54,71 @@ def save_seen(seen):
         json.dump(list(seen), f, ensure_ascii=False, indent=2)
 
 # ============================
-# Парсер RSS
+# Парсинг RSS-ленты
 # ============================
-def parse_rss(url, seen):
-    news = []
+def parse_rss(feed_url, seen):
+    items = []
     try:
-        resp = requests.get(url, headers={"User-Agent":"Mozilla/5.0"}, timeout=10)
+        resp = requests.get(feed_url, headers={"User-Agent":"Mozilla/5.0"}, timeout=10)
         resp.raise_for_status()
         root = ET.fromstring(resp.content)
-        for item in root.findall(".//item")[:5]:
-            link = item.findtext("link", "").strip()
+        for node in root.findall(".//item")[:5]:
+            link = node.findtext("link","").strip()
             if not link or link in seen:
                 continue
-            title = item.findtext("title", "Без заголовка").strip()
-            desc  = re.sub(r"<[^>]+>", "", item.findtext("description", "")).strip()
+            title = node.findtext("title","Без заголовка").strip()
+            desc  = re.sub(r"<[^>]+>","", node.findtext("description","")).strip()
             text  = (title + " " + desc).lower()
-            if any(kw in text for kw in KEYWORDS):
-                news.append({"title": title, "link": link, "desc": desc})
+            if any(kw.lower() in text for kw in KEYWORDS):
+                items.append({"title": title, "desc": desc, "link": link})
     except Exception as e:
-        print(f"[ERROR] {url}: {e}")
-    return news
+        print(f"[ERROR] Парсинг {feed_url}: {e}")
+    return items
 
 # ============================
-# Генерация текста поста с помощью OpenAI
+# Выбор одной свежей новости
 # ============================
-def generate_post(title, desc, link):
-    prompt = f"""
-Ты — редактор новостей по ИИ. На основе заголовка и краткого описания составь красивый, цепляющий пост для Telegram. 
-Сделай его в формате:
-🔍 {title}
+def get_one_news():
+    seen = load_seen()
+    for feed in RSS_FEEDS:
+        for item in parse_rss(feed, seen):
+            seen.add(item["link"])
+            save_seen(seen)
+            return item
+    return None
 
-1️⃣ Что случилось?  
-[Кратко, 1-2 предложения]
-
-2️⃣ Почему это важно?  
-[Почему это значимо, с фокусом на ИИ и технологиях]
-
-4️⃣ Подробности:
-🔗 {link}
-
-💡 P.S. Следите за обновлениями! 🚀
-
-Внизу добавь:
-<a href="https://t.me/BrainAid_bot">Бот</a>⚫️<a href="https://t.me/m/h5Kv1jd9MWMy">PerplexityPro</a>⚫️<a href="https://brainaid.ru/">Сайт</a>
-
----
-Заголовок: {title}
-Описание: {desc}
-    """
-    completion = client.chat.completions.create(
-        model="gpt-4o-mini",  # быстрая и дешевая генерация
-        messages=[
-            {"role": "system", "content": "Ты — профессиональный редактор новостей по ИИ и технологиям."},
+# ============================
+# Генерация текста поста через OpenAI HTTP API
+# ============================
+def generate_post(item):
+    prompt = (
+        f"Ты — редактор новостей по ИИ. На основе заголовка и описания сформируй Telegram-пост:\n\n"
+        f"🔍 {item['title']}\n\n"
+        f"Описание: {item['desc']}\n\n"
+        f"4️⃣ Подробности:\n🔗 {item['link']}\n\n"
+        f"💡 P.S. Следите за обновлениями! 🚀\n\n"
+        f"Внизу добавь:\n"
+        f"<a href='https://t.me/BrainAid_bot'>Бот</a>⚫️"
+        f"<a href='https://t.me/m/h5Kv1jd9MWMy'>PerplexityPro</a>⚫️"
+        f"<a href='https://brainaid.ru/'>Сайт</a>"
+    )
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "model": "gpt-3.5-turbo",
+        "messages": [
+            {"role": "system", "content": "Ты — профессиональный редактор."},
             {"role": "user", "content": prompt}
         ],
-        temperature=0.7,
-        max_tokens=300
-    )
-    return completion.choices[0].message.content.strip()
+        "temperature": 0.7,
+        "max_tokens": 300
+    }
+    r = requests.post(OPENAI_URL, headers=headers, json=data, timeout=30)
+    r.raise_for_status()
+    resp = r.json()
+    return resp["choices"][0]["message"]["content"]
 
 # ============================
 # Отправка сообщения в Telegram
@@ -119,39 +126,27 @@ def generate_post(title, desc, link):
 def send_message(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
-        "chat_id": CHAT_ID,  # только тебе в ЛС
-        "text": text,
+        "chat_id": CHAT_ID,
+        "text": html.escape(text, quote=False),
         "parse_mode": "HTML",
         "disable_web_page_preview": False
     }
-    r = requests.post(url, data=payload)
-    if r.status_code == 200:
-        print("[SUCCESS] Сообщение отправлено")
-    else:
+    r = requests.post(url, data=payload, timeout=10)
+    if r.status_code != 200:
         print(f"[ERROR] Telegram {r.status_code}: {r.text}")
 
 # ============================
 # Основная логика
 # ============================
 def main():
-    seen = load_seen()
-    fresh = []
-    for feed in RSS_FEEDS:
-        fresh += parse_rss(feed, seen)
-        if fresh:  # берём только первую подходящую новость
-            break
-
-    if not fresh:
-        print("[INFO] Нет новых новостей")
+    item = get_one_news()
+    if not item:
+        print("[INFO] Новостей не найдено")
         return
-
-    article = fresh[0]
-    seen.add(article["link"])
-    save_seen(seen)
-
-    print(f"[INFO] Генерация поста для: {article['title']}")
-    post_text = generate_post(article["title"], article["desc"], article["link"])
-    send_message(post_text)
+    print(f"[INFO] Генерируем пост для: {item['title']}")
+    post = generate_post(item)
+    send_message(post)
+    print("[DONE] Пост отправлен")
 
 if __name__ == "__main__":
     main()
