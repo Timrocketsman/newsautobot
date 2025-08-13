@@ -4,6 +4,8 @@ import xml.etree.ElementTree as ET
 import re
 import html
 import json
+import schedule
+import time
 
 # Подключаем dotenv для локального .env (если нужно)
 try:
@@ -181,9 +183,9 @@ def send_message(text):
 
 
 # ============================
-# MAIN
+# Функция для запуска постинга
 # ============================
-def main():
+def job():
     news = get_one_news()
     if not news:
         print("[INFO] Нет свежих новостей")
@@ -192,6 +194,21 @@ def main():
     post = generate_post(news)
     send_message(post)
     print("[DONE] Пост отправлен в ЛС")
+
+
+# ============================
+# MAIN с расписанием (ежедневно по МСК)
+# ============================
+def main():
+    # Установка расписания (время МСК, ежедневно)
+    schedule.every().day.at("08:30").do(job)
+    schedule.every().day.at("15:30").do(job)
+    schedule.every().day.at("19:30").do(job)
+
+    print("[INFO] Бот запущен. Ожидание расписания...")
+    while True:
+        schedule.run_pending()
+        time.sleep(60)  # Проверка каждую минуту
 
 
 if __name__ == "__main__":
