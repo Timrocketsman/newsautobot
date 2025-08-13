@@ -1,2 +1,5 @@
 requests
 schedule
+beautifulsoup4
+lxml
+xml.etree.ElementTree
