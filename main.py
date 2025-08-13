@@ -18,7 +18,7 @@ except ImportError:
 TELEGRAM_TOKEN      = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID             = os.getenv("CHAT_ID")
 OPENROUTER_API_KEY  = os.getenv("OPENROUTER_API_KEY")
-OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"  # Исправил на правильный URL
+OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 RSS_FEEDS = [
     "https://habr.com/ru/rss/all/all/",
@@ -79,11 +79,15 @@ def get_one_news():
 
 
 # ============================
-# Fallback пост без AI
+# Fallback пост без AI (точный шаблон)
 # ============================
 def fallback_post(news):
     return (
         f"🔍 {news['title']}\n\n"
+        "1️⃣ Что случилось?\n"
+        f"{news['desc']}\n\n"  # Используем описание как fallback
+        "2️⃣ Почему это важно?\n"
+        "Это значимо для сферы ИИ и технологий.\n\n"
         f"4️⃣ Подробности:\n🔗 {news['link']}\n\n"
         "💡 P.S. Следите за обновлениями! 🚀\n\n"
         '<a href="https://t.me/BrainAid_bot">Бот</a>⚫️'
@@ -93,7 +97,7 @@ def fallback_post(news):
 
 
 # ============================
-# Генерация поста через OpenRouter API
+# Генерация поста через OpenRouter API (строгий шаблон)
 # ============================
 def generate_post(news):
     if not OPENROUTER_API_KEY:
@@ -101,19 +105,19 @@ def generate_post(news):
         return fallback_post(news)
     
     prompt = (
-        f"Ты — редактор новостей по ИИ. На основе заголовка и описания составь цепляющий Telegram-пост:\n\n"
+        "Ты — редактор новостей по ИИ. Строго следуй этому формату для поста (не меняй структуру!):\n\n"
         f"🔍 {news['title']}\n\n"
         "1️⃣ Что случилось?\n"
-        "[1–2 предложения по сути]\n\n"
+        "[Кратко: 1–2 предложения по сути новости]\n\n"
         "2️⃣ Почему это важно?\n"
-        "[значимость для сферы ИИ и технологий]\n\n"
+        "[Кратко: значимость для сферы ИИ и технологий]\n\n"
         "4️⃣ Подробности:\n"
         f"🔗 {news['link']}\n\n"
         "💡 P.S. Следите за обновлениями! 🚀\n\n"
         '<a href="https://t.me/BrainAid_bot">Бот</a>⚫️'
         '<a href="https://t.me/m/h5Kv1jd9MWMy">PerplexityPro</a>⚫️'
         '<a href="https://brainaid.ru/">Сайт</a>\n\n'
-        f"Описание новости: {news['desc']}"
+        f"Основывайся на описании: {news['desc']}"
     )
     
     headers = {
@@ -123,11 +127,11 @@ def generate_post(news):
     body = {
         "model": "gpt-3.5-turbo",
         "messages": [
-            {"role": "system", "content": "Ты — профессиональный редактор новостей по ИИ."},
+            {"role": "system", "content": "Ты — профессиональный редактор новостей по ИИ. Строго следуй указанному формату, не добавляй лишнего."},
             {"role": "user", "content": prompt}
         ],
-        "temperature": 0.7,
-        "max_tokens": 300
+        "temperature": 0.5,  # Снижаем, чтобы был строже к формату
+        "max_tokens": 400
     }
     
     try:
@@ -136,7 +140,11 @@ def generate_post(news):
             print(f"[ERROR] OpenRouter API {resp.status_code}: {resp.text}")
             return fallback_post(news)
         data = resp.json()
-        return data["choices"][0]["message"]["content"].strip()
+        generated = data["choices"][0]["message"]["content"].strip()
+        # Проверяем и добавляем нижнюю строчку, если AI её пропустил
+        if '<a href="https://t.me/BrainAid_bot">' not in generated:
+            generated += '\n\n<a href="https://t.me/BrainAid_bot">Бот</a>⚫️<a href="https://t.me/m/h5Kv1jd9MWMy">PerplexityPro</a>⚫️<a href="https://brainaid.ru/">Сайт</a>'
+        return generated
     except Exception as e:
         print(f"[ERROR] OpenRouter API: {e}")
         return fallback_post(news)
