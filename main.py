@@ -16,9 +16,12 @@ except ImportError:
 # КОНФИГУРАЦИЯ через переменные окружения
 # ============================
 TELEGRAM_TOKEN      = os.getenv("TELEGRAM_TOKEN")
-CHAT_ID             = os.getenv("CHAT_ID")
+CHAT_ID             = os.getenv("CHAT_ID")  # Основной ID (например, 6983437462)
 OPENROUTER_API_KEY  = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+# Список получателей (добавили второго)
+CHAT_IDS = [CHAT_ID, "5999167622"] if CHAT_ID else ["5999167622"]
 
 RSS_FEEDS = [
     "https://habr.com/ru/rss/all/all/",
@@ -129,7 +132,7 @@ def generate_post(news):
             {"role": "system", "content": "Ты — профессиональный редактор новостей по ИИ с юмором. Строго следуй формату, зашивай ссылку в предложение, генерируй юмористический P.S."},
             {"role": "user", "content": prompt}
         ],
-        "temperature": 0.6,  # Чуть выше для юмора, но не слишком
+        "temperature": 0.6,
         "max_tokens": 400
     }
     
@@ -150,28 +153,31 @@ def generate_post(news):
 
 
 # ============================
-# Отправка сообщения в Telegram
+# Отправка сообщения в Telegram (несколько получателей)
 # ============================
 def send_message(text):
-    if not TELEGRAM_TOKEN or not CHAT_ID:
-        print("[ERROR] TELEGRAM_TOKEN или CHAT_ID не заданы")
+    if not TELEGRAM_TOKEN:
+        print("[ERROR] TELEGRAM_TOKEN не задан")
         return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": CHAT_ID,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": False,
-        "link_preview_options": json.dumps({
-            "is_disabled": False,
-            "show_above_text": True
-        })
-    }
-    r = requests.post(url, data=payload, timeout=10)
-    if r.status_code != 200:
-        print(f"[ERROR] Telegram API {r.status_code}: {r.text}")
-    else:
-        print("[OK] Пост отправлен")
+    for chat_id in CHAT_IDS:
+        if not chat_id:
+            continue
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": False,
+            "link_preview_options": json.dumps({
+                "is_disabled": False,
+                "show_above_text": True
+            })
+        }
+        r = requests.post(url, data=payload, timeout=10)
+        if r.status_code != 200:
+            print(f"[ERROR] Telegram API {r.status_code} для {chat_id}: {r.text}")
+        else:
+            print(f"[OK] Пост отправлен в {chat_id}")
 
 
 # ============================
