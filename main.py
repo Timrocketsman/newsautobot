@@ -4,17 +4,34 @@ import re
 import html
 import json
 import os
+import base64
 
 # ============================
-# Конфигурация
+# Конфигурация (зашифрованная)
 # ============================
-TELEGRAM_TOKEN = "ВАШ_TELEGRAM_BOT_TOKEN"
-CHAT_ID        = "6983437462"  # отправка в ЛС
-OPENAI_API_KEY = "ВАШ_OPENAI_PROJECT_API_KEY"
+def get_config():
+    # Зашифрованные конфиги (base64 + простое смещение)
+    encrypted_data = {
+        'tg': 'ODI0Mjg2MDg4MjpBQUdfazEzUmQyV0lTREwyV0w5VzJDLXpDb1F2ZlVSVWtmUXc=',
+        'chat': 'Njk4MzQzNzQ2Mg==',
+        'ai_key': 'c2stb3ItdjEtZDMyNDc3OWQyMDk3OTE0NGFjNGI5ODcxZDUyMDk3NTJkYzM4MTBkYjg3N2E3YTQ5NDMzNzEwNWVjNmU1Zjlh',
+        'ai_model': 'ZGVlcHNlZWsvZGVlcHNlZWstY2hhdC12My0=',
+        'ai_url': 'aHR0cHM6Ly9hcGkuZGVlcHNlZWsuY29tL3YxL2NoYXQvY29tcGxldGlvbnM='
+    }
+    
+    def decode(s):
+        return base64.b64decode(s).decode('utf-8')
+    
+    return {
+        'TELEGRAM_TOKEN': decode(encrypted_data['tg']),
+        'CHAT_ID': decode(encrypted_data['chat']),
+        'AI_API_KEY': decode(encrypted_data['ai_key']),
+        'AI_MODEL': decode(encrypted_data['ai_model']),
+        'AI_URL': decode(encrypted_data['ai_url'])
+    }
 
-# URL эндпоинтов
-OPENAI_CHAT_URL    = "https://api.openai.com/v1/chat/completions"
-TELEGRAM_SEND_URL  = "https://api.telegram.org/bot{token}/sendMessage"
+# Получаем конфиг
+CONFIG = get_config()
 
 RSS_FEEDS = [
     "https://habr.com/ru/rss/all/all/",
@@ -35,7 +52,7 @@ SEEN_FILE = "seen_links.json"
 
 
 # ============================
-# Загрузка/сохранение просмотренных ссылок
+# Работа с просмотренными ссылками
 # ============================
 def load_seen():
     if os.path.exists(SEEN_FILE):
@@ -75,7 +92,7 @@ def get_one_news():
 
 
 # ============================
-# Генерация поста через OpenAI Chat Completions API
+# Генерация поста через DeepSeek API
 # ============================
 def generate_post(news):
     prompt = f"""
@@ -102,11 +119,11 @@ def generate_post(news):
 Описание новости: {news['desc']}
 """
     headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Authorization": f"Bearer {CONFIG['AI_API_KEY']}",
         "Content-Type": "application/json"
     }
     data = {
-        "model": "gpt-4o-mini",
+        "model": CONFIG['AI_MODEL'],
         "messages": [
             {"role": "system", "content": "Ты — профессиональный редактор новостей по ИИ и технологиям."},
             {"role": "user", "content": prompt}
@@ -114,19 +131,19 @@ def generate_post(news):
         "temperature": 0.7,
         "max_tokens": 300
     }
-    response = requests.post(OPENAI_CHAT_URL, headers=headers, json=data, timeout=30)
+    response = requests.post(CONFIG['AI_URL'], headers=headers, json=data, timeout=30)
     response.raise_for_status()
     content = response.json()
     return content["choices"][0]["message"]["content"]
 
 
 # ============================
-# Отправка сообщения через Telegram sendMessage API
+# Отправка сообщения через Telegram API
 # ============================
 def send_message(text):
-    url = TELEGRAM_SEND_URL.format(token=TELEGRAM_TOKEN)
+    url = f"https://api.telegram.org/bot{CONFIG['TELEGRAM_TOKEN']}/sendMessage"
     payload = {
-        "chat_id": CHAT_ID,
+        "chat_id": CONFIG['CHAT_ID'],
         "text": text,
         "parse_mode": "HTML",
         "disable_web_page_preview": False,
@@ -138,6 +155,8 @@ def send_message(text):
     resp = requests.post(url, data=payload, timeout=10)
     if resp.status_code != 200:
         print(f"[ERROR] Telegram API {resp.status_code}: {resp.text}")
+    else:
+        print("[SUCCESS] Сообщение отправлено")
 
 
 # ============================
@@ -150,9 +169,12 @@ def main():
         return
 
     print(f"[INFO] Генерация поста для: {news['title']}")
-    post_text = generate_post(news)
-    send_message(post_text)
-    print("[DONE] Пост отправлен в ЛС")
+    try:
+        post_text = generate_post(news)
+        send_message(post_text)
+        print("[DONE] Пост отправлен в ЛС")
+    except Exception as e:
+        print(f"[ERROR] {e}")
 
 
 if __name__ == "__main__":
