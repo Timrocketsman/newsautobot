@@ -4,33 +4,15 @@ import re
 import html
 import json
 import os
-import base64
 
 # ============================
-# Конфигурация (зашифрованная)
+# Конфигурация (через переменные окружения!)
 # ============================
-def get_config():
-    # Зашифрованные конфиги (base64)
-    encrypted_data = {
-        'tg': 'ODI0Mjg2MDg4MjpBQUdfazEzUmQyV0lTREwyV0w5VzItekNvUXZmVVJVa2ZRdw==',
-        'chat': 'Njk4MzQzNzQ2Mg==', 
-        'ai_key': 'c2stb3ItdjEtZDMyNDc3OWQyMDk3OTE0NGFjNGI5ODcxZDUyMDk3NTJkYzM4MTBkYjg3N2E3YTQ5NDMzNzEwNWVjNmU1ZjlhNQ==',
-        'ai_model': 'ZGVlcHNlZWstY2hhdA==',
-        'ai_url': 'aHR0cHM6Ly9hcGkuZGVlcHNlZWsuY29tL3YxL2NoYXQvY29tcGxldGlvbnM='
-    }
-    
-    def decode(s):
-        return base64.b64decode(s).decode('utf-8')
-    
-    return {
-        'TELEGRAM_TOKEN': decode(encrypted_data['tg']),
-        'CHAT_ID': decode(encrypted_data['chat']),
-        'AI_API_KEY': decode(encrypted_data['ai_key']),
-        'AI_MODEL': decode(encrypted_data['ai_model']),
-        'AI_URL': decode(encrypted_data['ai_url'])
-    }
-
-CONFIG = get_config()
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID        = os.getenv("CHAT_ID")
+AI_API_KEY     = os.getenv("AI_API_KEY")        # DeepSeek ключ
+AI_MODEL       = os.getenv("AI_MODEL", "deepseek-chat")
+AI_URL         = os.getenv("AI_URL", "https://api.deepseek.com/v1/chat/completions")
 
 RSS_FEEDS = [
     "https://habr.com/ru/rss/all/all/",
@@ -40,9 +22,9 @@ RSS_FEEDS = [
 ]
 
 KEYWORDS = [
-    "ИИ","искусственный интеллект","нейросеть",
-    "машинное обучение","deep learning","ai",
-    "модель","llm","gpt","генерация"
+    "ИИ", "искусственный интеллект", "нейросеть",
+    "машинное обучение", "deep learning", "ai",
+    "модель", "llm", "gpt", "генерация"
 ]
 
 SEEN_FILE = "seen_links.json"
@@ -86,9 +68,13 @@ def get_one_news():
     return None
 
 # ============================
-# Генерация поста через DeepSeek API (с правильной авторизацией)
+# Генерация поста через DeepSeek API
 # ============================
 def generate_post(news):
+    if not AI_API_KEY:
+        print("[WARN] AI_API_KEY не задан — используем шаблон")
+        return fallback_post(news)
+
     prompt = f"""
 Ты — редактор новостей по ИИ. Составь Telegram-пост:
 
@@ -98,7 +84,7 @@ def generate_post(news):
 [1-2 предложения по сути]
 
 2️⃣ Почему это важно?
-[значимость для ИИ/технологий]
+[значимость для ИИ и технологий]
 
 4️⃣ Подробности:
 🔗 {news['link']}
@@ -113,70 +99,36 @@ def generate_post(news):
 Краткое описание: {news['desc']}
 """
 
-    # Правильные заголовки для DeepSeek API
     headers = {
-        "Authorization": f"Bearer {CONFIG['AI_API_KEY']}",
+        "Authorization": f"Bearer {AI_API_KEY}",
         "Content-Type": "application/json",
         "Accept": "application/json"
     }
-    
     data = {
-        "model": CONFIG['AI_MODEL'],
+        "model": AI_MODEL,
         "messages": [
-            {"role": "system", "content": "Ты — профессиональный редактор новостей по ИИ и технологиям."},
+            {"role": "system", "content": "Ты — профессиональный редактор новостей по ИИ."},
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.7,
-        "max_tokens": 400,
-        "stream": False
+        "max_tokens": 400
     }
-    
     try:
-        response = requests.post(CONFIG['AI_URL'], headers=headers, json=data, timeout=30)
-        print(f"[DEBUG] DeepSeek Response Status: {response.status_code}")
-        
-        if response.status_code == 401:
-            print(f"[ERROR] 401 Unauthorized - проверьте API ключ DeepSeek")
-            print(f"[DEBUG] Response: {response.text}")
-            # Возвращаем простой шаблон без AI
-            return f"""🔍 {news['title']}
-
-1️⃣ Что случилось?
-Новая разработка в области ИИ и технологий.
-
-2️⃣ Почему это важно?
-Показывает развитие современных технологий.
-
-4️⃣ Подробности:
-🔗 {news['link']}
-
-💡 P.S. Следите за обновлениями! 🚀
-
-<a href="https://t.me/BrainAid_bot">Бот</a>⚫️
-<a href="https://t.me/m/h5Kv1jd9MWMy">PerplexityPro</a>⚫️
-<a href="https://brainaid.ru/">Сайт</a>"""
-        
-        response.raise_for_status()
+        response = requests.post(AI_URL, headers=headers, json=data, timeout=30)
+        if response.status_code != 200:
+            print(f"[ERROR] AI API {response.status_code}: {response.text}")
+            return fallback_post(news)
         content = response.json()
         return content["choices"][0]["message"]["content"]
-        
-    except requests.exceptions.HTTPError as e:
-        print(f"[ERROR] HTTP Error: {e}")
-        print(f"[DEBUG] Response: {response.text}")
-        # Fallback шаблон
-        return f"""🔍 {news['title']}
-
-4️⃣ Подробности:
-🔗 {news['link']}
-
-💡 P.S. Следите за обновлениями! 🚀
-
-<a href="https://t.me/BrainAid_bot">Бот</a>⚫️
-<a href="https://t.me/m/h5Kv1jd9MWMy">PerplexityPro</a>⚫️
-<a href="https://brainaid.ru/">Сайт</a>"""
     except Exception as e:
-        print(f"[ERROR] DeepSeek API Error: {e}")
-        return f"""🔍 {news['title']}
+        print(f"[ERROR] AI API Error: {e}")
+        return fallback_post(news)
+
+# ============================
+# Fallback пост без AI
+# ============================
+def fallback_post(news):
+    return f"""🔍 {news['title']}
 
 4️⃣ Подробности:
 🔗 {news['link']}
@@ -191,9 +143,12 @@ def generate_post(news):
 # Отправка сообщения через Telegram API
 # ============================
 def send_message(text):
-    url = f"https://api.telegram.org/bot{CONFIG['TELEGRAM_TOKEN']}/sendMessage"
+    if not TELEGRAM_TOKEN:
+        print("[ERROR] TELEGRAM_TOKEN не задан")
+        return
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
-        "chat_id": CONFIG['CHAT_ID'],
+        "chat_id": CHAT_ID,
         "text": text,
         "parse_mode": "HTML",
         "disable_web_page_preview": False,
@@ -202,28 +157,23 @@ def send_message(text):
             "show_above_text": True
         })
     }
-    resp = requests.post(url, data=payload, timeout=10)
-    if resp.status_code != 200:
-        print(f"[ERROR] Telegram API {resp.status_code}: {resp.text}")
+    r = requests.post(url, data=payload, timeout=10)
+    if r.status_code != 200:
+        print(f"[ERROR] Telegram API {r.status_code}: {r.text}")
     else:
-        print("[SUCCESS] Сообщение отправлено")
+        print("[OK] Пост отправлен")
 
 # ============================
-# Главная функция
+# MAIN
 # ============================
 def main():
     news = get_one_news()
     if not news:
-        print("[INFO] Новостей по теме ИИ не найдено")
+        print("[INFO] Нет свежих новостей")
         return
-
     print(f"[INFO] Генерация поста для: {news['title']}")
-    try:
-        post_text = generate_post(news)
-        send_message(post_text)
-        print("[DONE] Пост отправлен в ЛС")
-    except Exception as e:
-        print(f"[ERROR] {e}")
+    post_text = generate_post(news)
+    send_message(post_text)
 
 if __name__ == "__main__":
     main()
