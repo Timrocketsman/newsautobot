@@ -1,5 +1,7 @@
-requests
-schedule
+requests==2.31.0
 beautifulsoup4
 lxml
 xml.etree.ElementTree
+pip>=23.0
+setuptools>=65.0
+wheel>=0.40.0
