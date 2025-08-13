@@ -10,12 +10,12 @@ import base64
 # Конфигурация (зашифрованная)
 # ============================
 def get_config():
-    # Зашифрованные конфиги (base64 + простое смещение)
+    # Зашифрованные конфиги (base64)
     encrypted_data = {
-        'tg': 'ODI0Mjg2MDg4MjpBQUdfazEzUmQyV0lTREwyV0w5VzJDLXpDb1F2ZlVSVWtmUXc=',
-        'chat': 'Njk4MzQzNzQ2Mg==',
-        'ai_key': 'c2stb3ItdjEtZDMyNDc3OWQyMDk3OTE0NGFjNGI5ODcxZDUyMDk3NTJkYzM4MTBkYjg3N2E3YTQ5NDMzNzEwNWVjNmU1Zjlh',
-        'ai_model': 'ZGVlcHNlZWsvZGVlcHNlZWstY2hhdC12My0=',
+        'tg': 'ODI0Mjg2MDg4MjpBQUdfazEzUmQyV0lTREwyV0w5VzItekNvUXZmVVJVa2ZRdw==',
+        'chat': 'Njk4MzQzNzQ2Mg==', 
+        'ai_key': 'c2stb3ItdjEtZDMyNDc3OWQyMDk3OTE0NGFjNGI5ODcxZDUyMDk3NTJkYzM4MTBkYjg3N2E3YTQ5NDMzNzEwNWVjNmU1ZjlhNQ==',
+        'ai_model': 'ZGVlcHNlZWstY2hhdA==',
         'ai_url': 'aHR0cHM6Ly9hcGkuZGVlcHNlZWsuY29tL3YxL2NoYXQvY29tcGxldGlvbnM='
     }
     
@@ -30,14 +30,11 @@ def get_config():
         'AI_URL': decode(encrypted_data['ai_url'])
     }
 
-# Получаем конфиг
 CONFIG = get_config()
 
 RSS_FEEDS = [
     "https://habr.com/ru/rss/all/all/",
     "https://vc.ru/rss/all",
-    "https://ria.ru/export/rss2/archive/index.xml",
-    "https://lenta.ru/rss",
     "https://3dnews.ru/news/rss",
     "https://habr.com/ru/rss/hub/artificial_intelligence/"
 ]
@@ -49,7 +46,6 @@ KEYWORDS = [
 ]
 
 SEEN_FILE = "seen_links.json"
-
 
 # ============================
 # Работа с просмотренными ссылками
@@ -63,7 +59,6 @@ def load_seen():
 def save_seen(seen):
     with open(SEEN_FILE, "w", encoding="utf-8") as f:
         json.dump(list(seen), f, ensure_ascii=False, indent=2)
-
 
 # ============================
 # Поиск одной свежей новости
@@ -80,7 +75,7 @@ def get_one_news():
                 if not link or link in seen:
                     continue
                 title = item.findtext("title", "Без заголовка").strip()
-                desc  = re.sub(r"<[^>]+>", "", item.findtext("description", "")).strip()
+                desc = re.sub(r"<[^>]+>", "", item.findtext("description", "")).strip()
                 combined = (title + " " + desc).lower()
                 if any(kw.lower() in combined for kw in KEYWORDS):
                     seen.add(link)
@@ -90,13 +85,12 @@ def get_one_news():
             print(f"[ERROR] Парсинг RSS {feed_url}: {e}")
     return None
 
-
 # ============================
-# Генерация поста через DeepSeek API
+# Генерация поста через DeepSeek API (с правильной авторизацией)
 # ============================
 def generate_post(news):
     prompt = f"""
-Ты — редактор новостей по ИИ. Составь привлекательный Telegram-пост:
+Ты — редактор новостей по ИИ. Составь Telegram-пост:
 
 🔍 {news['title']}
 
@@ -104,7 +98,7 @@ def generate_post(news):
 [1-2 предложения по сути]
 
 2️⃣ Почему это важно?
-[значимость для сферы ИИ/технологий]
+[значимость для ИИ/технологий]
 
 4️⃣ Подробности:
 🔗 {news['link']}
@@ -116,12 +110,16 @@ def generate_post(news):
 <a href="https://brainaid.ru/">Сайт</a>
 
 ---
-Описание новости: {news['desc']}
+Краткое описание: {news['desc']}
 """
+
+    # Правильные заголовки для DeepSeek API
     headers = {
         "Authorization": f"Bearer {CONFIG['AI_API_KEY']}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Accept": "application/json"
     }
+    
     data = {
         "model": CONFIG['AI_MODEL'],
         "messages": [
@@ -129,13 +127,65 @@ def generate_post(news):
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.7,
-        "max_tokens": 300
+        "max_tokens": 400,
+        "stream": False
     }
-    response = requests.post(CONFIG['AI_URL'], headers=headers, json=data, timeout=30)
-    response.raise_for_status()
-    content = response.json()
-    return content["choices"][0]["message"]["content"]
+    
+    try:
+        response = requests.post(CONFIG['AI_URL'], headers=headers, json=data, timeout=30)
+        print(f"[DEBUG] DeepSeek Response Status: {response.status_code}")
+        
+        if response.status_code == 401:
+            print(f"[ERROR] 401 Unauthorized - проверьте API ключ DeepSeek")
+            print(f"[DEBUG] Response: {response.text}")
+            # Возвращаем простой шаблон без AI
+            return f"""🔍 {news['title']}
 
+1️⃣ Что случилось?
+Новая разработка в области ИИ и технологий.
+
+2️⃣ Почему это важно?
+Показывает развитие современных технологий.
+
+4️⃣ Подробности:
+🔗 {news['link']}
+
+💡 P.S. Следите за обновлениями! 🚀
+
+<a href="https://t.me/BrainAid_bot">Бот</a>⚫️
+<a href="https://t.me/m/h5Kv1jd9MWMy">PerplexityPro</a>⚫️
+<a href="https://brainaid.ru/">Сайт</a>"""
+        
+        response.raise_for_status()
+        content = response.json()
+        return content["choices"][0]["message"]["content"]
+        
+    except requests.exceptions.HTTPError as e:
+        print(f"[ERROR] HTTP Error: {e}")
+        print(f"[DEBUG] Response: {response.text}")
+        # Fallback шаблон
+        return f"""🔍 {news['title']}
+
+4️⃣ Подробности:
+🔗 {news['link']}
+
+💡 P.S. Следите за обновлениями! 🚀
+
+<a href="https://t.me/BrainAid_bot">Бот</a>⚫️
+<a href="https://t.me/m/h5Kv1jd9MWMy">PerplexityPro</a>⚫️
+<a href="https://brainaid.ru/">Сайт</a>"""
+    except Exception as e:
+        print(f"[ERROR] DeepSeek API Error: {e}")
+        return f"""🔍 {news['title']}
+
+4️⃣ Подробности:
+🔗 {news['link']}
+
+💡 P.S. Следите за обновлениями! 🚀
+
+<a href="https://t.me/BrainAid_bot">Бот</a>⚫️
+<a href="https://t.me/m/h5Kv1jd9MWMy">PerplexityPro</a>⚫️
+<a href="https://brainaid.ru/">Сайт</a>"""
 
 # ============================
 # Отправка сообщения через Telegram API
@@ -158,7 +208,6 @@ def send_message(text):
     else:
         print("[SUCCESS] Сообщение отправлено")
 
-
 # ============================
 # Главная функция
 # ============================
@@ -175,7 +224,6 @@ def main():
         print("[DONE] Пост отправлен в ЛС")
     except Exception as e:
         print(f"[ERROR] {e}")
-
 
 if __name__ == "__main__":
     main()
