@@ -5,16 +5,21 @@ import re
 import html
 import json
 
+# Подключаем dotenv для локального .env (если нужно)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # Если не установлен, игнорируем (для Railway)
+
 # ============================
 # КОНФИГУРАЦИЯ через переменные окружения
 # ============================
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")  # 8141858682:AAG_k13Rd2WClI1SDL9W7-zC0vFuRUUkfUw
-CHAT_ID        = os.getenv("CHAT_ID")        # 6983437462
-AI_API_KEY     = os.getenv("AI_API_KEY")     # sk-or-v1-...
-AI_MODEL       = os.getenv("AI_MODEL", "deepseek-chat")
-AI_URL         = os.getenv("AI_URL", "https://api.deepseek.com/v1/chat/completions")
+TELEGRAM_TOKEN      = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID             = os.getenv("CHAT_ID")
+OPENROUTER_API_KEY  = os.getenv("OPENROUTER_API_KEY")
+OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"  # Исправил на правильный URL
 
-# RSS-ленты для парсинга
 RSS_FEEDS = [
     "https://habr.com/ru/rss/all/all/",
     "https://vc.ru/rss/all",
@@ -24,18 +29,17 @@ RSS_FEEDS = [
     "https://habr.com/ru/rss/hub/artificial_intelligence/"
 ]
 
-# Ключевые слова для фильтрации
 KEYWORDS = [
-    "ИИ", "искусственный интеллект", "нейросеть",
+    "ии", "искусственный интеллект", "нейросеть",
     "машинное обучение", "deep learning", "ai",
     "модель", "llm", "gpt", "генерация"
-]
+]  # Все в lower для лучшей фильтрации
 
 SEEN_FILE = "seen_links.json"
 
 
 # ============================
-# Работа с файлом seen_links.json
+# Работа с seen_links.json
 # ============================
 def load_seen():
     if os.path.exists(SEEN_FILE):
@@ -43,9 +47,9 @@ def load_seen():
             return set(json.load(f))
     return set()
 
-def save_seen(links):
+def save_seen(seen):
     with open(SEEN_FILE, "w", encoding="utf-8") as f:
-        json.dump(list(links), f, ensure_ascii=False, indent=2)
+        json.dump(list(seen), f, ensure_ascii=False, indent=2)
 
 
 # ============================
@@ -55,27 +59,27 @@ def get_one_news():
     seen = load_seen()
     for url in RSS_FEEDS:
         try:
-            resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-            resp.raise_for_status()
-            root = ET.fromstring(resp.content)
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+            r.raise_for_status()
+            root = ET.fromstring(r.content)
             for item in root.findall(".//item")[:5]:
                 link = item.findtext("link", "").strip()
                 if not link or link in seen:
                     continue
                 title = item.findtext("title", "Без заголовка").strip()
-                desc  = re.sub(r"<[^>]+>", "", item.findtext("description", "")).strip()
-                text = (title + " " + desc).lower()
-                if any(kw.lower() in text for kw in KEYWORDS):
+                desc = re.sub(r"<[^>]+>", "", item.findtext("description", "")).strip()
+                txt = (title + " " + desc).lower()
+                if any(kw in txt for kw in KEYWORDS):
                     seen.add(link)
                     save_seen(seen)
                     return {"title": title, "desc": desc, "link": link}
-        except Exception:
-            continue
+        except Exception as e:
+            print(f"[ERROR] Парсинг {url}: {e}")
     return None
 
 
 # ============================
-# Fallback-пост без AI
+# Fallback пост без AI
 # ============================
 def fallback_post(news):
     return (
@@ -89,61 +93,62 @@ def fallback_post(news):
 
 
 # ============================
-# Сгенерировать пост через DeepSeek API
+# Генерация поста через OpenRouter API
 # ============================
 def generate_post(news):
-    if not AI_API_KEY:
+    if not OPENROUTER_API_KEY:
+        print("[WARN] OPENROUTER_API_KEY не задан — fallback")
         return fallback_post(news)
-
+    
     prompt = (
-        f"Ты — редактор новостей по ИИ. Составь Telegram-пост:\n\n"
+        f"Ты — редактор новостей по ИИ. На основе заголовка и описания составь цепляющий Telegram-пост:\n\n"
         f"🔍 {news['title']}\n\n"
         "1️⃣ Что случилось?\n"
         "[1–2 предложения по сути]\n\n"
         "2️⃣ Почему это важно?\n"
-        "[значимость для сферы ИИ]\n\n"
+        "[значимость для сферы ИИ и технологий]\n\n"
         "4️⃣ Подробности:\n"
         f"🔗 {news['link']}\n\n"
         "💡 P.S. Следите за обновлениями! 🚀\n\n"
         '<a href="https://t.me/BrainAid_bot">Бот</a>⚫️'
         '<a href="https://t.me/m/h5Kv1jd9MWMy">PerplexityPro</a>⚫️'
         '<a href="https://brainaid.ru/">Сайт</a>\n\n'
-        f"Описание: {news['desc']}"
+        f"Описание новости: {news['desc']}"
     )
-
+    
     headers = {
-        "Authorization": f"Bearer {AI_API_KEY}",
-        "Content-Type": "application/json",
-        "Accept": "application/json"
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json"
     }
-    payload = {
-        "model": AI_MODEL,
+    body = {
+        "model": "gpt-3.5-turbo",
         "messages": [
             {"role": "system", "content": "Ты — профессиональный редактор новостей по ИИ."},
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.7,
-        "max_tokens": 400
+        "max_tokens": 300
     }
-
+    
     try:
-        resp = requests.post(AI_URL, headers=headers, json=payload, timeout=30)
+        resp = requests.post(OPENROUTER_CHAT_URL, headers=headers, json=body, timeout=30)
         if resp.status_code != 200:
+            print(f"[ERROR] OpenRouter API {resp.status_code}: {resp.text}")
             return fallback_post(news)
         data = resp.json()
         return data["choices"][0]["message"]["content"].strip()
-    except Exception:
+    except Exception as e:
+        print(f"[ERROR] OpenRouter API: {e}")
         return fallback_post(news)
 
 
 # ============================
-# Отправить сообщение через Telegram API
+# Отправка сообщения в Telegram
 # ============================
 def send_message(text):
     if not TELEGRAM_TOKEN or not CHAT_ID:
-        print("ERROR: TELEGRAM_TOKEN или CHAT_ID не заданы")
+        print("[ERROR] TELEGRAM_TOKEN или CHAT_ID не заданы")
         return
-
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
         "chat_id": CHAT_ID,
@@ -155,9 +160,11 @@ def send_message(text):
             "show_above_text": True
         })
     }
-    resp = requests.post(url, data=payload, timeout=10)
-    if resp.status_code != 200:
-        print(f"Telegram API Error {resp.status_code}: {resp.text}")
+    r = requests.post(url, data=payload, timeout=10)
+    if r.status_code != 200:
+        print(f"[ERROR] Telegram API {r.status_code}: {r.text}")
+    else:
+        print("[OK] Пост отправлен")
 
 
 # ============================
@@ -166,13 +173,12 @@ def send_message(text):
 def main():
     news = get_one_news()
     if not news:
-        print("INFO: Нет свежих новостей по ИИ")
+        print("[INFO] Нет свежих новостей")
         return
-
-    print(f"INFO: Генерация поста для: {news['title']}")
+    print(f"[INFO] Генерация поста для: {news['title']}")
     post = generate_post(news)
     send_message(post)
-    print("DONE: Пост отправлен")
+    print("[DONE] Пост отправлен в ЛС")
 
 
 if __name__ == "__main__":
